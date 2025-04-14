@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException,status
+from fastapi import APIRouter, Depends,status,BackgroundTasks
 from .schemas import UserCreate, UserModel, UserLoginModel, UserBooksModel,EmailModel, PasswordResetRequestModel,PasswordResetConfirm
 from sqlalchemy.ext.asyncio import AsyncSession
 from src.db.db import get_session  
@@ -14,12 +14,15 @@ from src.errors import (UserAlreadyExists,UserNotFound,InvalidCredentials,Invali
 from src.mail import mail,create_message
 from src.config import Config
 from src.db.db import get_session
+from src.celery_tasks import send_email
 
 auth_router = APIRouter()
 
 user_service = UserService()
 
 role_checker = Depends(RoleChecker(['admin','user']))
+
+
 
 REFRESH_TOKEN_EXPIRY=2
 
@@ -30,13 +33,17 @@ async def send_mail(emails:EmailModel):
     
     html = "<h1>Welcome to the App</h1>"
 
-    message = create_message(
-        recipients=emails,
-        subject="Welcome to Bookly",
-        body=html
-    )
+    #Replace this because we're using celery to send emails
+
+    # message = create_message(
+    #     recipients=emails,
+    #     subject="Welcome to Bookly",
+    #     body=html
+    # )
     
-    await mail.send_message(message)
+    # await mail.send_message(message)
+    
+    send_email.delay(receipients=emails,subject="Welcome to Bookly",body=html)
     
     return {"message":"Email sent successfully"}
 
@@ -45,7 +52,7 @@ async def send_mail(emails:EmailModel):
 
 
 @auth_router.post("/signup", status_code=status.HTTP_201_CREATED)
-async def create_user_account(user_data: UserCreate, session: AsyncSession = Depends(get_session)):
+async def create_user_account(user_data: UserCreate,background_tasks:BackgroundTasks, session: AsyncSession = Depends(get_session)):
     
     """ Create a new user account using email,username, first_name, last_name
     params:
@@ -71,14 +78,18 @@ async def create_user_account(user_data: UserCreate, session: AsyncSession = Dep
     
     """
     
+    # Replace this because we're using celery to send emails
     
-    message = create_message(
-        recipients=[email],
-        subject="Verify your Email",
-        body=html_message
-    )
+    # message = create_message(
+    #     recipients=[email],
+    #     subject="Verify your Email",
+    #     body=html_message
+    # )
     
-    await mail.send_message(message)
+    # background_tasks.add_task(mail.send_message,message)
+    
+    send_email.delay(receipients=[email],subject="Verify your Email",body=html_message)
+
     
     return {
         "message":"Account Created Successfully! Check your email to verify your account",
@@ -90,7 +101,7 @@ async def verify_user_account(token:str, session: AsyncSession = Depends(get_ses
     """ Verify a user account using the token sent to the user's email"""
     token_data = decode_url_safe_token(token)
     
-    user_email = token_data.get('email')
+    user_email = token_data.get("email")
     
     if user_email:
         user = await user_service.get_user_by_email(user_email,session)
@@ -200,7 +211,9 @@ async def password_reset_request(email_data:PasswordResetRequestModel,session: A
     
     token = create_url_safe_token({"email":email})
 
-    link = f"http: //{Config.DOMAIN}/api/v1/auth/passwird-reset-confirm/{token}"
+    link = f"http://{Config.DOMAIN}/api/v1/auth/password-reset-confirm/{token}"
+    
+
     
     html_message = f"""
     <h1>Reset Your Password</h1>
@@ -219,7 +232,7 @@ async def password_reset_request(email_data:PasswordResetRequestModel,session: A
     )
 
 
-@auth_router.get("/passwird-reset-confirm/{token}")
+@auth_router.post("/password-reset-confirm/{token}")
 async def reset_account_password(token:str,passwords:PasswordResetConfirm, session: AsyncSession = Depends(get_session)):
     """ Reset the user password using the token sent to the user's email""" 
     
@@ -241,7 +254,7 @@ async def reset_account_password(token:str,passwords:PasswordResetConfirm, sessi
         
         
         password_hash = generate_password_hash(new_password)
-        await user_service.update_user(user,{"password":password_hash},session)
+        await user_service.update_user(user,{"password_hash":password_hash},session)
         
         return JSONResponse(
             content={"message":"Password Reset Successfully!"},

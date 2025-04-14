@@ -60,6 +60,10 @@ class InvalidPassword(BooklyException):
     """User has provided an invalid password."""
     pass
 
+class ReviewNotFound(BooklyException):
+    """Review not found in the database."""
+    pass
+
 def create_exception_handler(status_code:int, initial_detail:Any) -> Callable[[Request,Exception], JSONResponse]:
     
     async def exception_handler(request:Request, exc:BooklyException):
@@ -237,6 +241,17 @@ def register_all_errors(app:FastAPI):
                 "message":"Passwords do not match",
                 "resolution":"Please check your passwords and try again",
                 "error_code":"password_mismatch"
+            }
+        )
+    )
+    app.add_exception_handler(
+        ReviewNotFound,
+        create_exception_handler(
+            status_code=status.HTTP_404_NOT_FOUND,
+            initial_detail={
+                "message":"Review not found",
+                "resolution":"Please crosscheck for the review",
+                "error_code":"review_not_found"
             }
         )
     )

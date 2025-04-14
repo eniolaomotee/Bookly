@@ -5,6 +5,8 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from src.reviews.schemas import ReviewCreateModel
 from fastapi import HTTPException, status
 import logging
+from src.errors import ReviewNotFound, UserNotFound, BookNotFound
+from sqlmodel import select,desc
 
 book_service = BookService()
 user_service = UserService()
@@ -18,10 +20,10 @@ class ReviewService():
             new_review = Review(**review_data_dict)
             
             if not book:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Book not found")
+                raise BookNotFound()
             
             if not user:
-                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+                raise UserNotFound()
             
             new_review.user = user
             
@@ -35,6 +37,63 @@ class ReviewService():
         
         except Exception as e:
             logging.exception("Error adding review to book: %s", e)
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Oops something went wrong")
+        
+    async def get_all_reviews(self, session:AsyncSession):
+        statement = select(Review).order_by(Review.created_at.desc())
+        
+        result = await session.exec(statement)
+        
+        return result.all()
+    
+    async def get_review_by_id(self, review_uid:str, session:AsyncSession):
+        try:
+            review = await session.get(Review, review_uid)
+            
+            if not review:
+                raise ReviewNotFound()
+            
+            return review
+        
+        except Exception as e:
+            logging.exception("Error fetching review by ID: %s", e)
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Oops something went wrong")
+    
+    async def delete_review(self, review_uid:str, session:AsyncSession):
+        try:
+            review = await session.get(Review, review_uid)
+            
+            if not review:
+                raise ReviewNotFound()
+            
+            await session.delete(review)
+            await session.commit()
+            
+            return {"message":"Review deleted successfully"}
+        
+        except Exception as e:
+            logging.exception("Error deleting review: %s", e)
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Oops something went wrong")
+        
+    async def update_review(self, review_uid:str, review_data:ReviewCreateModel, session:AsyncSession):
+        try:
+            review = await session.get(Review, review_uid)
+            
+            if not review:
+                raise ReviewNotFound()
+            
+            update_review_dict = review_data.model_dump()
+            
+            for k, v in update_review_dict.items():
+                setattr(review, k, v)
+                
+                await session.commit()
+                await session.refresh(review)
+            
+            return review
+        
+        except Exception as e:
+            logging.exception("Error updating review: %s", e)
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Oops something went wrong")
         
         
