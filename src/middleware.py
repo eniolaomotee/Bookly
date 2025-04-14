@@ -40,12 +40,21 @@ def register_middleware(app: FastAPI):
     
     app.add_middleware(
         TrustedHostMiddleware,
-        allowed_hosts=["localhost","127.0.0.1","bookly-api-j8hb.onrender.com"]
+        allowed_hosts=["localhost","127.0.0.1","0.0.0.0","bookly-api-j8hb.onrender.com"]
     )
     
     
     
-    
+    @app.middleware('http')
+    async def debug_host(request: Request, call_next):
+        """
+        Middleware to log the host of the request.
+        """
+        print(f"Request host: {request.client.host}")
+        
+        response = await call_next(request)
+        
+        return response
     
     
     
